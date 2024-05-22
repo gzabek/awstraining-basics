@@ -59,19 +59,19 @@ After forking repository to your account, please clone it to your local machine 
 This is base AWS account id that we use for the base repository.
 You must replace this with your own account id in all files.
 
-Then, you should look for all occurrences of:
-* <<CUSTOM_UNIQUE_BUCKET_STRING>>
+Then, you should go to **wrapper.properties** and set **UNIQUE_BUCKET_STRING** to your custom, unique string, that will
+be added as a suffix to your state bucket name.
 
-This string should be some unique value. It is important to come up
-with a unique value, as this will affect the name of the Terraform state bucket that will be created, thus it must
-be unique globally. Please also do not make it too long.
+It is important to come up with a unique value, as this will affect the name of the Terraform state bucket 
+that will be created, thus it must be unique globally. Please also do not make it too long.
 
 E.g.:
 * daja819ad
 
 Push changes to your remote repository.
 
-Then you should create a new profile in ```C:\Users\YOURUSER\.aws\credentials``` and set credentials to your account:
+Then, in order to be able to apply Terraform changes locally, you should create a new profile 
+in ```C:\Users\YOURUSER\.aws\credentials``` and set credentials to your account:
 ```
 [backend-test]
 aws_access_key_id = YOUR_ACCESS_KEY_ID
@@ -95,8 +95,10 @@ Then, you should run ```provisionWithTerraform``` pipeline under **Actions** tab
 This will automatically provision AWS infrastructure.
 
 ## Configuring secrets in AWS
-Then go to AWS Secret Manager, copy ARN of created Secret and set it in the task definition for the region that you are deploying.
-Look for:
+In order for our application to be able to access AWS Secrets Manager containing credentials for basic auth, please 
+go to AWS Secret Manager, copy ARN of the created Secret and set it in the task definition for the region that you are deploying.
+
+Search for (e.g. in EMEA-TEST tak definition, if you are deploying to EMEA TEST):
 ```
 <<TODO: set ARN of secrets manager>>
 ```
@@ -122,9 +124,9 @@ You should add the following secrets that will create users for basic auth:
 Spring will automatically load this JSON to the Spring container at the application start up and user **userEMEATest** 
 with password **welt** will be available for basic auth during application execution in EMEA TEST environment.
 
-**Attention!**
+### Setting basic auth credentials for tests
 Remember to set **BACKEND_EMEA_TEST_SMOKETEST_BACKEND_PASSWORD** secret in GitHub Settings when using CICD workflow.
-This should be set to "welt" (exactly as base-encoded password in AWS Secrets Manager), so that smoke tests will be executed
+This should be set to "welt" (exactly like base-encoded password in AWS Secrets Manager), so that smoke tests will be executed
 without issues in CICD.
 
 ## Build & Deploy to Fargate
@@ -152,9 +154,10 @@ curl http://backend-lb-672995306.eu-central-1.elb.amazonaws.com/device/v1/test \
 }'
 ```
 
-User is **testUser** and password is **welt**.
+User is **userEMEATest** and password is **welt**.
 
 # Applying Terraform changes for single module (locally)
+## Using w2.sh script
 In ```/aws-infrastructure/terraform``` directory:
 
 ```
@@ -166,6 +169,34 @@ For example:
 ./w2.sh backend-test eu-central-1 common/services/ecs-backend-cluster apply
 ```
 
+## Using plain Terraform
+1. Go to given directory
+   ```cd aws-infrastructure/terraform/common/general/create-remote-state-bucket/```
+2. Initiate terraform -> ``` terraform init ```. This will install all modules required by this configuration
+3. Start creation of AWS infrastructure -> ``` terraform apply ```
+4. When asked we need to provide some variables
+```bash
+var.common_tags             -> {"app:hub"="emea", "app:env"="test", "app:name"="backend", "terraform-path"="create-remote-state-bucket", terraform="true"}
+var.environment             -> emea
+var.profile                 -> backend-test
+var.region                  -> eu-central-1
+var.remote_state_bucket     -> tf-state-backend-test-eu-central-1-<<UNIQUE_BUCKET_STRING>>
+var.shared_credentials_file -> C:\\Users\\<<USERNAME>>\\.aws\\credentials
+```
+Or use one-liner:
+```bash
+terraform apply \
+  -var='common_tags={"app:hub"="emea", "app:env"="test", "app:name"="backend", "terraform-path"="create-remote-state-bucket", terraform="true"}' \
+  -var='environment=emea' \
+  -var='profile=backend-test' \
+  -var='region=eu-central-1' \
+  -var='remote_state_bucket=tf-state-backend-test-eu-central-1-<<UNIQUE_BUCKET_STRING>>' \
+  -var='shared_credentials_file=C:\\Users\\<<USERNAME>>\\.aws\\credentials'
+```
+Set ```<<USERNAME>>``` to your CORP ID.
+
+Unique bucket string is some string that will make your bucket name unique globally.
+
 # Deploying AWS infrastructure (locally)
 You can also deploy infrastructure locally, without CICD.
 
@@ -174,7 +205,7 @@ You need **terraform_1.4.6** or higher version.
 
 Now you can run a script to set up a new AWS environment (still in ```/aws-infrastructure/terraform``` directory):
 ```
-./setup_new_region.sh w2.sh backend-test eu-central-1 emea apply -auto-approve
+./setup_new_region.sh w2.sh backend-test eu-central-1 apply -auto-approve
 ```
 
 Terraform should automatically approve all changes and create all required resources one-by-one.
@@ -186,9 +217,11 @@ Stop all running tasks.
 
 Delete images from AWS ECR and delete secrets from AWS Secret Manager.
 
+Empty TFSTATE bucket in S3.
+
 Run a script to destroy a new AWS environment (in ```/aws-infrastructure/terraform``` directory):
 ```
-./setup_new_region.sh w2.sh backend-test eu-central-1 emea destroy -auto-approve
+./setup_new_region.sh w2.sh backend-test eu-central-1 destroy -auto-approve
 ```
 
 Terraform should automatically approve all changes and delete all existing resources one-by-one.
